@@ -34,12 +34,14 @@ export default Component.extend({
     }
     
     let preventPageScroll = (e) => {
-      if (!this.$().find(e.target).length) return;
+      if (!this.$().find(e.target).length) {
+        return;
+      }
       var area = this.element;
 
       var delta = e.deltaY || e.detail || e.wheelDelta;
 
-      if (delta < 0 && area.scrollTop == 0) {
+      if (delta < 0 && area.scrollTop === 0) {
         e.preventDefault();
       }
 
