@@ -1,11 +1,29 @@
-import Component from 'ember-component';
-import $ from 'jquery';
+import Component from '@ember/component';
+import { computed } from '@ember/object';
 import layout from '../../templates/components/power-select/options';
-import computed from 'ember-computed';
+
+(function(ElementProto) {
+  if (typeof ElementProto.matches !== 'function') {
+    ElementProto.matches = ElementProto.msMatchesSelector || ElementProto.mozMatchesSelector || ElementProto.webkitMatchesSelector;
+  }
+
+  if (typeof ElementProto.closest !== 'function') {
+    ElementProto.closest = function closest(selector) {
+      let element = this;
+      while (element && element.nodeType === 1) {
+        if (element.matches(selector)) {
+          return element;
+        }
+        element = element.parentNode;
+      }
+      return null;
+    };
+  }
+})(window.Element.prototype);
 
 export default Component.extend({
   isTouchDevice: (!!self.window && 'ontouchstart' in self.window),
-  layout: layout,
+  layout,
   tagName: 'ul',
   attributeBindings: ['role', 'aria-controls'],
   role: 'listbox',
@@ -17,14 +35,18 @@ export default Component.extend({
       return;
     }
     let findOptionAndPerform = (action, e) => {
-      let optionItem = $(e.target).closest('[data-option-index]');
-      if (!optionItem || !(0 in optionItem)) { return; }
-      if (optionItem.closest('[aria-disabled=true]').length) { return; } // Abort if the item or an ancestor is disabled
-      let optionIndex = optionItem[0].getAttribute('data-option-index');
+      let optionItem = e.target.closest('[data-option-index]');
+      if (!optionItem) {
+        return;
+      }
+      if (optionItem.closest('[aria-disabled=true]')) {
+        return; // Abort if the item or an ancestor is disabled
+      }
+      let optionIndex = optionItem.getAttribute('data-option-index');
       action(this._optionFromIndex(optionIndex), e);
     };
-    this.element.addEventListener('mouseup', e => findOptionAndPerform(this.get('select.actions.choose'), e));
-    this.element.addEventListener('mouseover', e => findOptionAndPerform(this.get('select.actions.highlight'), e));
+    this.element.addEventListener('mouseup', (e) => findOptionAndPerform(this.get('select.actions.choose'), e));
+    this.element.addEventListener('mouseover', (e) => findOptionAndPerform(this.get('select.actions.highlight'), e));
     if (this.get('isTouchDevice')) {
       this._addTouchEvents();
     }
@@ -67,10 +89,12 @@ export default Component.extend({
     this.element.addEventListener('touchstart', () => {
       this.element.addEventListener('touchmove', touchMoveHandler);
     });
-    this.element.addEventListener('touchend', e => {
-	  let optionItem = $(e.target).closest('[data-option-index]');
+    this.element.addEventListener('touchend', (e) => {
+      let optionItem = e.target.closest('[data-option-index]');
 
-	  if (!optionItem || !(0 in optionItem)) { return; }
+      if (!optionItem) {
+        return;
+      }
 
       e.preventDefault();
       if (this.hasMoved) {
@@ -78,7 +102,7 @@ export default Component.extend({
         return;
       }
 
-      let optionIndex = optionItem[0].getAttribute('data-option-index');
+      let optionIndex = optionItem.getAttribute('data-option-index');
       this.get('select.actions.choose')(this._optionFromIndex(optionIndex), e);
     });
   },

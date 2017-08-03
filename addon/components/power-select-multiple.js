@@ -1,5 +1,6 @@
-import Component from 'ember-component';
-import computed from 'ember-computed';
+import Component from '@ember/component';
+import { computed } from '@ember/object';
+import { isEqual } from '@ember/utils';
 import layout from '../templates/components/power-select-multiple';
 import fallbackIfUndefined from '../utils/computed-fallback-if-undefined';
 
@@ -30,17 +31,29 @@ export default Component.extend({
     }
   }),
 
+  computedTabIndex: computed('tabindex', 'searchEnabled', 'triggerComponent', function() {
+    if (this.get('triggerComponent') === 'power-select-multiple/trigger' && this.get('searchEnabled') !== false) {
+      return '-1';
+    } else {
+      return this.get('tabindex');
+    }
+  }),
+
   // Actions
   actions: {
     handleOpen(select, e) {
       let action = this.get('onopen');
-      if (action && action(select, e) === false) { return false; }
+      if (action && action(select, e) === false) {
+        return false;
+      }
       this.focusInput();
     },
 
     handleFocus(select, e) {
       let action = this.get('onfocus');
-      if (action) { action(select, e); }
+      if (action) {
+        action(select, e);
+      }
       this.focusInput();
     },
 
@@ -69,7 +82,13 @@ export default Component.extend({
 
     buildSelection(option, select) {
       let newSelection = (select.selected || []).slice(0);
-      let idx = newSelection.indexOf(option);
+      let idx = -1;
+      for (let i = 0; i < newSelection.length; i++) {
+        if (isEqual(newSelection[i], option)) {
+          idx = i;
+          break;
+        }
+      }
       if (idx > -1) {
         newSelection.splice(idx, 1);
       } else {
@@ -82,6 +101,8 @@ export default Component.extend({
   // Methods
   focusInput() {
     let input = this.element.querySelector('.ember-power-select-trigger-multiple-input');
-    if (input) { input.focus(); }
+    if (input) {
+      input.focus();
+    }
   }
 });

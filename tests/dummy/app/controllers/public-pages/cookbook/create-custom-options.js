@@ -1,13 +1,14 @@
-import Ember from 'ember';
+import Controller from '@ember/controller';
+import { isBlank } from '@ember/utils';
+import { A } from '@ember/array';
 
-export default Ember.Controller.extend({
-  options: Ember.A(['Barcelona', 'London', 'New York', 'Porto']),
+export default Controller.extend({
+  options: A(['Barcelona', 'London', 'New York', 'Porto']),
   selected: [],
 
   actions: {
     createOnEnter(select, e) {
-      if (e.keyCode === 13 && select.isOpen &&
-        !select.highlighted && !Ember.isBlank(select.searchText)) {
+      if (e.keyCode === 13 && select.isOpen && !select.highlighted && !isBlank(select.searchText)) {
 
         let selected = this.get('selected');
         if (!selected.includes(select.searchText)) {

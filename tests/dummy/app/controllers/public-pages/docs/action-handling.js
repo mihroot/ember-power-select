@@ -1,14 +1,17 @@
-import Ember from 'ember';
+import Controller from '@ember/controller';
+import { lte } from '@ember/object/computed';
+import { A } from '@ember/array';
+import { later } from '@ember/runloop';
 
 const numbers = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   cities: ['Barcelona', 'London', 'New York', 'Porto', 'Coruña', 'Kracow', 'Siena', 'Portland', 'Springfield', 'Tokio'],
   destination: 'London',
-  selectedCities: [],
+  selectedCities: A(),
   numbers,
   counter: 8,
-  destroyed: Ember.computed.lte('counter', 0),
+  destroyed: lte('counter', 0),
 
   actions: {
     chooseDestination(city) {
@@ -16,23 +19,37 @@ export default Ember.Controller.extend({
     },
 
     handleKeydown(dropdown, e) {
-      if (e.keyCode !== 13) { return; }
+      if (e.keyCode !== 13) {
+        return;
+      }
       let text = e.target.value;
       if (text.length > 0 && this.get('cities').indexOf(text) === -1) {
-        this.get('selectedCities').pushObject(text);
+        let cities = this.get('selectedCities');
+        this.set('selectedCities', cities.concat([text]));
       }
     },
 
-    handleFocus(select) {
-      select.actions.open();
+    handleFocus(select, e) {
+      let blurredEl = e.relatedTarget;
+      if (!blurredEl || !blurredEl.classList.contains('ember-power-select-search-input')) {
+        select.actions.open();
+      }
+    },
+
+    handleBlur() {
+      /* eslint-disable */
+      console.debug('EPS blurred!');
+      /* eslint-enable */
     },
 
     startSelfDestroyCountdown() {
       let tick = () => {
         this.decrementProperty('counter');
-        if (!this.get('destroyed')) { Ember.run.later(tick, 1000); }
+        if (!this.get('destroyed')) {
+          later(tick, 1000);
+        }
       };
-      this.set('countdown', Ember.run.later(tick, 1000));
+      this.set('countdown', later(tick, 1000));
     },
 
     verifyPresence(/* select, e */) {
@@ -41,6 +58,14 @@ export default Ember.Controller.extend({
       } else {
         this.set('selectClass', 'has-error');
         return false;
+      }
+    },
+
+    checkLength(text, select) {
+      if (select.searchText.length >= 3 && text.length < 3) {
+        return '';
+      } else {
+        return text.length >= 3;
       }
     }
   }

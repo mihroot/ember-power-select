@@ -1,7 +1,8 @@
-import Ember from 'ember';
+import Controller from '@ember/controller';
+import RSVP from 'rsvp';
 
 function generatePromise() {
-  return new Ember.RSVP.Promise((resolve) => {
+  return new RSVP.Promise((resolve) => {
     setTimeout(() => resolve(['one', 'two', 'three']), 5000);
   });
 }
@@ -13,23 +14,26 @@ const countries = [
   { name: 'Russia',         code: 'RU', population: 146588880, disabled: true },
   { name: 'Latvia',         code: 'LV', population: 1978300 },
   { name: 'Brazil',         code: 'BR', population: 204921000, disabled: true },
-  { name: 'United Kingdom', code: 'GB', population: 64596752 },
+  { name: 'United Kingdom', code: 'GB', population: 64596752 }
 ];
 
 const groupedNumbers = [
-  { groupName: "Smalls", disabled: true, options: ["one", "two", "three"] },
-  { groupName: "Mediums", options: ["four", "five", "six"] },
-  { groupName: "Bigs", disabled: true, options: [
-      { groupName: "Fairly big", options: ["seven", "eight", "nine"] },
-      { groupName: "Really big", options: [ "ten", "eleven", "twelve" ] },
-      "thirteen"
+  { groupName: 'Smalls', disabled: true, options: ['one', 'two', 'three'] },
+  { groupName: 'Mediums', options: ['four', 'five', 'six'] },
+  {
+    groupName: 'Bigs',
+    disabled: true,
+    options: [
+      { groupName: 'Fairly big', options: ['seven', 'eight', 'nine'] },
+      { groupName: 'Really big', options: ['ten', 'eleven', 'twelve'] },
+      'thirteen'
     ]
   },
-  "one hundred",
-  "one thousand"
+  'one hundred',
+  'one thousand'
 ];
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   names: ['Stefan', 'Miguel', 'Tomster', 'Pluto'],
   emptyList: [],
   promise: null,

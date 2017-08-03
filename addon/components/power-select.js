@@ -1,20 +1,32 @@
-import Component from 'ember-component';
+import Component from '@ember/component';
+import { computed } from '@ember/object';
+import { scheduleOnce } from '@ember/runloop';
+import { isEqual } from '@ember/utils';
+import { get, set } from '@ember/object';
+import { assert } from '@ember/debug';
+import { DEBUG } from '@glimmer/env';
+import { isBlank } from '@ember/utils';
+import { isArray as isEmberArray } from '@ember/array';
 import layout from '../templates/components/power-select';
 import fallbackIfUndefined from '../utils/computed-fallback-if-undefined';
-import { assert } from 'ember-metal/utils';
-import { isBlank } from 'ember-utils';
-import { isEmberArray } from 'ember-array/utils';
-import computed from 'ember-computed';
-import get from 'ember-metal/get';
-import set from 'ember-metal/set';
-import { scheduleOnce, debounce, cancel } from 'ember-runloop';
-import { defaultMatcher, indexOfOption, optionAtIndex, filterOptions, countOptions } from '../utils/group-utils';
+import {
+  defaultMatcher,
+  indexOfOption,
+  optionAtIndex,
+  filterOptions,
+  countOptions,
+  defaultHighlighted,
+  advanceSelectableOption
+} from '../utils/group-utils';
+import { task, timeout } from 'ember-concurrency';
 
 // Copied from Ember. It shouldn't be necessary in Ember 2.5+
 const assign = Object.assign || function EmberAssign(original, ...args) {
   for (let i = 0; i < args.length; i++) {
     let arg = args[i];
-    if (!arg) { continue; }
+    if (!arg) {
+      continue;
+    }
 
     let updates = Object.keys(arg);
 
@@ -28,27 +40,10 @@ const assign = Object.assign || function EmberAssign(original, ...args) {
 };
 
 function concatWithProperty(strings, property) {
-  if (property) { strings.push(property); }
+  if (property) {
+    strings.push(property);
+  }
   return strings.join(' ');
-}
-
-function defaultHighlighted(results, selected) {
-  if (selected === undefined || indexOfOption(results, selected) === -1) {
-    return advanceSelectableOption(results, selected, 1);
-  }
-  return selected;
-}
-
-function advanceSelectableOption(options, currentOption, step) {
-  let resultsLength = countOptions(options);
-  let startIndex = Math.min(Math.max(indexOfOption(options, currentOption) + step, 0), resultsLength - 1);
-  let { disabled, option } = optionAtIndex(options, startIndex);
-  while (option && disabled) {
-    let next = optionAtIndex(options, startIndex += step);
-    disabled = next.disabled;
-    option = next.option;
-  }
-  return option;
 }
 
 function toPlainArray(collection) {
@@ -66,8 +61,7 @@ const initialState = {
   loading: false,           // Truthy if there is a pending promise that will update the results
   isActive: false,          // Truthy if the trigger is focused. Other subcomponents can mark it as active depending on other logic.
   // Private API (for now)
-  _expirableSearchText: '',
-  _activeSearch: null,
+  _expirableSearchText: ''
 };
 
 export default Component.extend({
@@ -81,18 +75,23 @@ export default Component.extend({
   matcher: fallbackIfUndefined(defaultMatcher),
   loadingMessage: fallbackIfUndefined('Loading options...'),
   noMatchesMessage: fallbackIfUndefined('No results found'),
-  searchMessage: fallbackIfUndefined("Type to search"),
+  searchMessage: fallbackIfUndefined('Type to search'),
   closeOnSelect: fallbackIfUndefined(true),
+  defaultHighlighted: fallbackIfUndefined(defaultHighlighted),
 
   afterOptionsComponent: fallbackIfUndefined(null),
   beforeOptionsComponent: fallbackIfUndefined('power-select/before-options'),
   optionsComponent: fallbackIfUndefined('power-select/options'),
+  groupComponent: fallbackIfUndefined('power-select/power-select-group'),
   selectedItemComponent: fallbackIfUndefined(null),
   triggerComponent: fallbackIfUndefined('power-select/trigger'),
   searchMessageComponent: fallbackIfUndefined('power-select/search-message'),
+  placeholderComponent: fallbackIfUndefined('power-select/placeholder'),
+
+  _triggerTagName: fallbackIfUndefined('div'),
+  _contentTagName: fallbackIfUndefined('div'),
 
   // Private state
-  expirableSearchDebounceId: null,
   publicAPI: initialState,
 
   // Lifecycle hooks
@@ -110,25 +109,22 @@ export default Component.extend({
 
   willDestroy() {
     this._super(...arguments);
-    this.activeSelectedPromise = this.activeOptionsPromise = null;
-    let publicAPI = this.get('publicAPI');
-    if (publicAPI.options && publicAPI.options.removeObserver) {
-      publicAPI.options.removeObserver('[]', this, this._updateOptionsAndResults);
+    this._removeObserversInOptions();
+    this._removeObserversInSelected();
+    let action = this.get('registerAPI');
+    if (action) {
+      action(null);
     }
-    cancel(this.expirableSearchDebounceId);
   },
 
   // CPs
   selected: computed({
-    get() { return null; },
+    get() {
+      return null;
+    },
     set(_, selected) {
       if (selected && selected.then) {
-        this.activeSelectedPromise = selected;
-        selected.then(selection => {
-          if (this.activeSelectedPromise === selected) {
-            this.updateSelection(selection);
-          }
-        });
+        this.get('_updateSelectedTask').perform(selected);
       } else {
         scheduleOnce('actions', this, this.updateSelection, selected);
       }
@@ -137,23 +133,15 @@ export default Component.extend({
   }),
 
   options: computed({
-    get() { return []; },
+    get() {
+      return [];
+    },
     set(_, options, oldOptions) {
       if (options === oldOptions) {
         return options;
       }
       if (options && options.then) {
-        this.updateState({ loading: true });
-        this.activeOptionsPromise = options;
-        options.then(resolvedOptions => {
-          if (this.activeOptionsPromise === options) {
-            this.updateOptions(resolvedOptions);
-          }
-        }, () => {
-          if (this.activeOptionsPromise === options) {
-            this.updateState({ loading: false });
-          }
-        });
+        this.get('_updateOptionsTask').perform(options);
       } else {
         scheduleOnce('actions', this, this.updateOptions, options);
       }
@@ -186,27 +174,30 @@ export default Component.extend({
     return concatWithProperty(classes, this.get('dropdownClass'));
   }),
 
-  mustShowSearchMessage: computed('publicAPI.{searchText,resultsCount}', 'search', 'searchMessage', function(){
+  mustShowSearchMessage: computed('publicAPI.{loading,searchText,resultsCount}', 'search', 'searchMessage', function() {
     let publicAPI = this.get('publicAPI');
-    return publicAPI.searchText.length === 0 &&
-      !!this.get('search') && !!this.get('searchMessage') &&
-      publicAPI.resultsCount === 0;
+    return !publicAPI.loading && publicAPI.searchText.length === 0
+      && !!this.get('search') && !!this.get('searchMessage')
+      && publicAPI.resultsCount === 0;
   }),
 
   mustShowNoMessages: computed('search', 'publicAPI.{lastSearchedText,resultsCount,loading}', function() {
     let publicAPI = this.get('publicAPI');
-    return !publicAPI.loading &&
-      publicAPI.resultsCount === 0 &&
-      (!this.get('search') || publicAPI.lastSearchedText.length > 0);
+    return !publicAPI.loading
+      && publicAPI.resultsCount === 0
+      && (!this.get('search') || publicAPI.lastSearchedText.length > 0);
   }),
 
   // Actions
   actions: {
     registerAPI(dropdown) {
+      if (!dropdown) {
+        return;
+      }
       let publicAPI = assign({}, this.get('publicAPI'), dropdown);
       publicAPI.actions = assign({}, dropdown.actions, this._publicAPIActions);
       this.setProperties({
-        publicAPI: publicAPI,
+        publicAPI,
         optionsId: `ember-power-select-options-${publicAPI.uniqueId}`
       });
       let action = this.get('registerAPI');
@@ -234,7 +225,9 @@ export default Component.extend({
       if (action && action(this.get('publicAPI'), e) === false) {
         return false;
       }
-      if (e) { this.openingEvent = null; }
+      if (e) {
+        this.openingEvent = null;
+      }
       this.updateState({ highlighted: undefined });
     },
 
@@ -242,20 +235,26 @@ export default Component.extend({
       let term = e.target.value;
       let action = this.get('oninput');
       let publicAPI = this.get('publicAPI');
-      if (action && action(term, publicAPI, e) === false) {
-        return;
+      let correctedTerm;
+      if (action) {
+        correctedTerm = action(term, publicAPI, e);
+        if (correctedTerm === false) {
+          return;
+        }
       }
-      publicAPI.actions.search(term);
+      publicAPI.actions.search(typeof correctedTerm === 'string' ? correctedTerm : term);
     },
 
-    highlight(option /*, e */) {
-      if (option && get(option, 'disabled')) { return; }
+    highlight(option /* , e */) {
+      if (option && get(option, 'disabled')) {
+        return;
+      }
       this.updateState({ highlighted: option });
     },
 
-    select(selected /*, e */) {
+    select(selected /* , e */) {
       let publicAPI = this.get('publicAPI');
-      if (publicAPI.selected !== selected) {
+      if (!isEqual(publicAPI.selected, selected)) {
         this.get('onchange')(selected, publicAPI);
       }
     },
@@ -273,7 +272,9 @@ export default Component.extend({
     choose(selected, e) {
       if (e && e.clientY) {
         if (this.openingEvent && this.openingEvent.clientY) {
-          if (Math.abs(this.openingEvent.clientY - e.clientY) < 2) { return; }
+          if (Math.abs(this.openingEvent.clientY - e.clientY) < 2) {
+            return;
+          }
         }
       }
       let publicAPI = this.get('publicAPI');
@@ -291,7 +292,7 @@ export default Component.extend({
         return false;
       }
       if (e.keyCode >= 48 && e.keyCode <= 90) { // Keys 0-9, a-z or SPACE
-        return this._handleTriggerTyping(e);
+        this.get('triggerTypingTask').perform(e);
       } else if (e.keyCode === 32) {  // Space
         return this._handleKeySpace(e);
       } else {
@@ -308,14 +309,27 @@ export default Component.extend({
       return this._routeKeydown(e);
     },
 
-    scrollTo(option /*, e */) {
-      if (!self.document || !option) { return; }
+    scrollTo(option, ...rest) {
+      if (!self.document || !option) {
+        return;
+      }
       let publicAPI = this.get('publicAPI');
-      let optionsList = self.document.getElementById('ember-power-select-options-' + publicAPI.uniqueId);
-      if (!optionsList) { return; }
+      let userDefinedScrollTo = this.get('scrollTo');
+      if (userDefinedScrollTo) {
+        return userDefinedScrollTo(option, publicAPI, ...rest);
+      }
+      let optionsList = self.document.getElementById(`ember-power-select-options-${publicAPI.uniqueId}`);
+      if (!optionsList) {
+        return;
+      }
       let index = indexOfOption(publicAPI.results, option);
-      if (index === -1) { return; }
+      if (index === -1) {
+        return;
+      }
       let optionElement = optionsList.querySelectorAll('[data-option-index]').item(index);
+      if (!optionElement) {
+        return;
+      }
       let optionTopScroll = optionElement.offsetTop - optionsList.offsetTop;
       let optionBottomScroll = optionTopScroll + optionElement.offsetHeight;
       if (optionBottomScroll > optionsList.offsetHeight + optionsList.scrollTop) {
@@ -341,34 +355,129 @@ export default Component.extend({
       }
     },
 
+    onTriggerBlur(_, event) {
+      this.send('deactivate');
+      let action = this.get('onblur');
+      if (action) {
+        action(this.get('publicAPI'), event);
+      }
+    },
+
+    onBlur(event) {
+      this.send('deactivate');
+      let action = this.get('onblur');
+      if (action) {
+        action(this.get('publicAPI'), event);
+      }
+    },
+
     activate() {
-      this.updateState({ isActive: true });
+      scheduleOnce('actions', this, 'setIsActive', true);
     },
 
     deactivate() {
-      this.updateState({ isActive: false });
+      scheduleOnce('actions', this, 'setIsActive', false);
     }
   },
 
+  // Tasks
+  triggerTypingTask: task(function* (e) {
+    let publicAPI = this.get('publicAPI');
+    let term = publicAPI._expirableSearchText + String.fromCharCode(e.keyCode);
+    this.updateState({ _expirableSearchText: term });
+    let matches = this.filter(publicAPI.options, term, true);
+    if (get(matches, 'length') > 0) {
+      let firstMatch = optionAtIndex(matches, 0);
+      if (firstMatch !== undefined) {
+        if (publicAPI.isOpen) {
+          publicAPI.actions.highlight(firstMatch.option, e);
+          publicAPI.actions.scrollTo(firstMatch.option, e);
+        } else {
+          publicAPI.actions.select(firstMatch.option, e);
+        }
+      }
+    }
+    yield timeout(1000);
+    this.updateState({ _expirableSearchText: '' });
+  }).restartable(),
+
+  _updateSelectedTask: task(function* (selectionPromise) {
+    let selection = yield selectionPromise;
+    this.updateSelection(selection);
+  }).restartable(),
+
+  _updateOptionsTask: task(function* (optionsPromise) {
+    this.updateState({ loading: true });
+    try {
+      let options = yield optionsPromise;
+      this.updateOptions(options);
+    } finally {
+      this.updateState({ loading: false });
+    }
+  }).restartable(),
+
+  handleAsyncSearchTask: task(function* (term, searchThenable) {
+    try {
+      this.updateState({ loading: true });
+      let results = yield searchThenable;
+      let resultsArray = toPlainArray(results);
+      this.updateState({
+        results: resultsArray,
+        _rawSearchResults: results,
+        lastSearchedText: term,
+        resultsCount: countOptions(results),
+        loading: false
+      });
+      this.resetHighlighted();
+    } catch(e) {
+      this.updateState({ lastSearchedText: term, loading: false });
+    } finally {
+      if (typeof searchThenable.cancel === 'function') {
+        searchThenable.cancel();
+      }
+    }
+  }).restartable(),
+
   // Methods
+  setIsActive(isActive) {
+    this.updateState({ isActive });
+  },
+
   filter(options, term, skipDisabled = false) {
     return filterOptions(options || [], term, this.get('optionMatcher'), skipDisabled);
   },
 
   updateOptions(options) {
+    this._removeObserversInOptions();
     if (!options) {
       return;
     }
+    if (DEBUG) {
+      (function walk(collection) {
+        for (let i = 0; i < get(collection, 'length'); i++) {
+          let entry = collection.objectAt ? collection.objectAt(i) : collection[i];
+          let subOptions = get(entry, 'options');
+          let isGroup = !!get(entry, 'groupName') && !!subOptions;
+          if (isGroup) {
+            assert('ember-power-select doesn\'t support promises inside groups. Please, resolve those promises and turn them into arrays before passing them to ember-power-select', !subOptions.then);
+            walk(subOptions);
+          }
+        }
+      })(options);
+    }
     if (options && options.addObserver) {
       options.addObserver('[]', this, this._updateOptionsAndResults);
+      this._observedOptions = options;
     }
     this._updateOptionsAndResults(options);
   },
 
   updateSelection(selection) {
+    this._removeObserversInSelected();
     if (isEmberArray(selection)) {
       if (selection && selection.addObserver) {
         selection.addObserver('[]', this, this._updateSelectedArray);
+        this._observedSelected = selection;
       }
       this._updateSelectedArray(selection);
     } else if (selection !== this.get('publicAPI').selected) {
@@ -378,16 +487,24 @@ export default Component.extend({
 
   resetHighlighted() {
     let publicAPI = this.get('publicAPI');
-    let highlighted = defaultHighlighted(publicAPI.results, publicAPI.highlighted || publicAPI.selected);
+    let defaultHightlighted = this.get('defaultHighlighted');
+    let highlighted;
+    if (typeof defaultHightlighted === 'function') {
+      highlighted = defaultHightlighted(publicAPI);
+    } else {
+      highlighted = defaultHightlighted;
+    }
     this.updateState({ highlighted });
   },
 
-  buildSelection(option /*, select */) {
+  buildSelection(option /* , select */) {
     return option;
   },
 
   _updateOptionsAndResults(opts) {
-    if (get(this, 'isDestroyed')) { return; }
+    if (get(this, 'isDestroyed')) {
+      return;
+    }
     let options = toPlainArray(opts);
     let publicAPI;
     if (this.get('search')) { // external search
@@ -403,19 +520,21 @@ export default Component.extend({
   },
 
   _updateSelectedArray(selection) {
-    if (get(this, 'isDestroyed')) { return; }
+    if (get(this, 'isDestroyed')) {
+      return;
+    }
     this.updateState({ selected: toPlainArray(selection) });
   },
 
   _resetSearch() {
     let results = this.get('publicAPI').options;
+    this.get('handleAsyncSearchTask').cancelAll();
     this.updateState({
       results,
       searchText: '',
       lastSearchedText: '',
       resultsCount: countOptions(results),
-      loading: false,
-      _activeSearch: null
+      loading: false
     });
   },
 
@@ -432,25 +551,7 @@ export default Component.extend({
     if (!search) {
       publicAPI = this.updateState({ lastSearchedText: term });
     } else if (search.then) {
-      publicAPI = this.updateState({ loading: true, _activeSearch: search });
-      search.then((results) => {
-        if (this.get('isDestroyed')) { return; }
-        if (this.get('publicAPI')._activeSearch === search) {
-          let resultsArray = toPlainArray(results);
-          this.updateState({
-            results: resultsArray,
-            lastSearchedText: term,
-            resultsCount: countOptions(results),
-            loading: false
-          });
-          this.resetHighlighted();
-        }
-      }, () => {
-        if (this.get('isDestroyed')) { return; }
-        if (this.get('publicAPI')._activeSearch === search) {
-          this.updateState({ lastSearchedText: term, loading: false });
-        }
-      });
+      this.get('handleAsyncSearchTask').perform(term, search);
     } else {
       let resultsArray = toPlainArray(search);
       this.updateState({ results: resultsArray, lastSearchedText: term, resultsCount: countOptions(resultsArray) });
@@ -508,23 +609,15 @@ export default Component.extend({
     this.get('publicAPI').actions.close(e);
   },
 
-  _handleTriggerTyping(e) {
-    let publicAPI = this.get('publicAPI');
-    let term = publicAPI._expirableSearchText + String.fromCharCode(e.keyCode);
-    this.updateState({ _expirableSearchText: term });
-    this.expirableSearchDebounceId = debounce(this, this.updateState, { _expirableSearchText: '' }, 1000);
-    let matches = this.filter(publicAPI.options, term, true);
-    if (get(matches, 'length') === 0) {
-      return;
+  _removeObserversInOptions() {
+    if (this._observedOptions) {
+      this._observedOptions.removeObserver('[]', this, this._updateOptionsAndResults);
     }
-    let firstMatch = optionAtIndex(matches, 0);
-    if (firstMatch !== undefined) {
-      if (publicAPI.isOpen) {
-        publicAPI.actions.highlight(firstMatch.option, e);
-        publicAPI.actions.scrollTo(firstMatch.option, e);
-      } else {
-        publicAPI.actions.select(firstMatch.option, e);
-      }
+  },
+
+  _removeObserversInSelected() {
+    if (this._observedSelected) {
+      this._observedSelected.removeObserver('[]', this, this._updateSelectedArray);
     }
   },
 

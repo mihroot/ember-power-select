@@ -1,8 +1,12 @@
 import { moduleForComponent, test } from 'ember-qunit';
 import hbs from 'htmlbars-inline-precompile';
 import { countries } from '../constants';
+import { groupedNumbers } from '../constants';
 import { clickTrigger } from '../../../helpers/ember-power-select';
-import Ember from 'ember';
+import { find, findAll, click } from 'ember-native-dom-helpers';
+import { get } from '@ember/object';
+import { getOwner } from '@ember/application';
+import { isPresent } from '@ember/utils';
 
 moduleForComponent('ember-power-select', 'Integration | Component | Ember Power Select (Customization using components)', {
   integration: true
@@ -20,9 +24,9 @@ test('selected option can be customized using triggerComponent', function(assert
     {{/power-select}}
   `);
 
-  assert.equal($('.ember-power-select-status-icon').length, 0, 'The provided trigger component is not rendered');
-  assert.equal($('.ember-power-select-trigger .icon-flag').length, 1, 'The custom flag appears.');
-  assert.equal($('.ember-power-select-trigger').text().trim(), 'Spain', 'With the country name as the text.');
+  assert.notOk(find('.ember-power-select-status-icon'), 'The provided trigger component is not rendered');
+  assert.ok(find('.ember-power-select-trigger .icon-flag'), 'The custom flag appears.');
+  assert.equal(find('.ember-power-select-trigger').textContent.trim(), 'Spain', 'With the country name as the text.');
 
 });
 
@@ -38,9 +42,9 @@ test('selected item option can be customized using selectedItemComponent', funct
     {{/power-select}}
   `);
 
-  assert.equal($('.ember-power-select-status-icon').length, 1, 'The provided trigger component is rendered');
-  assert.equal($('.ember-power-select-trigger .icon-flag').length, 1, 'The custom flag appears.');
-  assert.equal($('.ember-power-select-trigger').text().trim(), 'Spain', 'With the country name as the text.');
+  assert.ok(find('.ember-power-select-status-icon'), 'The provided trigger component is rendered');
+  assert.ok(find('.ember-power-select-trigger .icon-flag'), 'The custom flag appears.');
+  assert.equal(find('.ember-power-select-trigger').textContent.trim(), 'Spain', 'With the country name as the text.');
 });
 
 test('the list of options can be customized using optionsComponent', function(assert) {
@@ -56,9 +60,27 @@ test('the list of options can be customized using optionsComponent', function(as
   `);
 
   clickTrigger();
-  let text = $('.ember-power-select-options').text().trim();
+  let text = find('.ember-power-select-options').textContent.trim();
   assert.ok(/Countries:/.test(text), 'The given component is rendered');
   assert.ok(/3\. Russia/.test(text), 'The component has access to the options');
+});
+
+test('the `optionsComponent` receives the `extra` hash', function(assert) {
+  assert.expect(2);
+
+  this.countries = countries;
+  this.country = countries[1]; // Spain
+
+  this.render(hbs`
+    {{#power-select options=countries selected=country optionsComponent="list-of-countries" onchange=(action (mut foo)) extra=(hash field='code') as |country|}}
+      {{country.code}}
+    {{/power-select}}
+  `);
+
+  clickTrigger();
+  let text = find('.ember-power-select-options').textContent.trim();
+  assert.ok(/Countries:/.test(text), 'The given component is rendered');
+  assert.ok(/3\. RU/.test(text), 'The component uses the field in the extra has to render the options');
 });
 
 test('the content before the list can be customized passing `beforeOptionsComponent`', function(assert) {
@@ -74,8 +96,8 @@ test('the content before the list can be customized passing `beforeOptionsCompon
   `);
 
   clickTrigger();
-  assert.equal($('.ember-power-select-dropdown #custom-before-options-p-tag').length, 1, 'The custom component is rendered instead of the usual search bar');
-  assert.equal($('.ember-power-select-search-input').length, 0, 'The search input is not visible');
+  assert.ok(find('.ember-power-select-dropdown #custom-before-options-p-tag'), 'The custom component is rendered instead of the usual search bar');
+  assert.notOk(find('.ember-power-select-search-input'), 'The search input is not visible');
 });
 
 test('the content after the list can be customized passing `afterOptionsComponent`', function(assert) {
@@ -91,8 +113,8 @@ test('the content after the list can be customized passing `afterOptionsComponen
   `);
 
   clickTrigger();
-  assert.equal($('.ember-power-select-dropdown #custom-after-options-p-tag').length, 1, 'The custom component is rendered instead of the usual search bar');
-  assert.equal($('.ember-power-select-search-input').length, 1, 'The search input is still visible');
+  assert.ok(find('.ember-power-select-dropdown #custom-after-options-p-tag'), 'The custom component is rendered instead of the usual search bar');
+  assert.ok(find('.ember-power-select-search-input'), 'The search input is still visible');
 });
 
 test('the `beforeOptionsComponent` and `afterOptionsComponent` receive the `extra` hash', function(assert) {
@@ -116,8 +138,8 @@ test('the `beforeOptionsComponent` and `afterOptionsComponent` receive the `extr
   `);
 
   clickTrigger();
-  Ember.run(() => $('.custom-before-options2-button')[0].click());
-  Ember.run(() => $('.custom-after-options2-button')[0].click());
+  click('.custom-before-options2-button');
+  click('.custom-after-options2-button');
   assert.equal(counter, 2, 'The action inside the extra hash has been called twice');
 });
 
@@ -147,7 +169,7 @@ test('the `triggerComponent` receives the `onFocus` action that triggers the `on
     {{/power-select}}
   `);
 
-  this.$('#focusable-input')[0].focus();
+  find('#focusable-input').focus();
 });
 
 test('the search message can be customized passing `searchMessageComponent`', function(assert) {
@@ -162,5 +184,77 @@ test('the search message can be customized passing `searchMessageComponent`', fu
   `);
 
   clickTrigger();
-  assert.equal($('.ember-power-select-dropdown #custom-search-message-p-tag').length, 1, 'The custom component is rendered instead of the usual message');
+  assert.ok(find('.ember-power-select-dropdown #custom-search-message-p-tag'), 'The custom component is rendered instead of the usual message');
+});
+
+test('placeholder can be customized using placeholderComponent', function(assert) {
+  assert.expect(2);
+
+  this.countries = countries;
+
+  this.render(hbs`
+    {{#power-select
+      options=countries
+      placeholder="test"
+      placeholderComponent="custom-placeholder"
+      onchange=(action (mut foo)) as |country|}}
+      {{country.name}}
+    {{/power-select}}
+  `);
+
+  assert.ok(find('.ember-power-select-placeholder'), 'The placeholder appears.');
+  assert.equal(
+    find('.ember-power-select-placeholder').textContent.trim(),
+    'This is a very bold placeholder',
+    'The placeholder content is equal.'
+  );
+});
+
+test('groupComponent can be overridden', function(assert) {
+  this.groupedNumbers = groupedNumbers;
+  let numberOfGroups = 5; // number of groups in groupedNumber;
+
+  let PowerSelectGroupComponent = get(getOwner(this).factoryFor('component:power-select/power-select-group'), 'class');
+  this.register('component:custom-group-component', PowerSelectGroupComponent.extend({
+    layout: hbs`<div class="custom-component">{{yield}}</div>`
+  }));
+
+  this.render(hbs`
+    {{#power-select options=groupedNumbers groupComponent='custom-group-component' onchange=(action (mut foo)) as |country|}}
+      {{country.name}}
+    {{/power-select}}
+  `);
+
+  clickTrigger();
+
+  assert.equal(findAll('.ember-power-select-options .custom-component').length, numberOfGroups);
+});
+
+test('groupComponent has extension points', function(assert) {
+  this.groupedNumbers = groupedNumbers;
+  let numberOfGroups = 5; // number of groups in groupedNumbers
+  assert.expect(4 * numberOfGroups + 1);
+
+  let extra = { foo: 'bar' };
+  this.extra = extra;
+  let PowerSelectGroupComponent = get(getOwner(this).factoryFor('component:power-select/power-select-group'), 'class');
+  assert.ok(PowerSelectGroupComponent, 'component:custom-group-component must be defined');
+
+  this.register('component:custom-group-component', PowerSelectGroupComponent.extend({
+    init() {
+      this._super(...arguments);
+      assert.ok(isPresent(this.get('select')));
+      assert.ok(isPresent(this.get('group.groupName')));
+      assert.ok(isPresent(this.get('group.options')));
+      assert.equal(this.get('extra'), extra);
+    }
+  }));
+
+  this.render(hbs`
+    {{#power-select options=groupedNumbers groupComponent='custom-group-component' extra=extra onchange=(action (mut foo)) as |country|}}
+      {{country.name}}
+    {{/power-select}}
+  `);
+
+  clickTrigger();
 });

@@ -1,6 +1,6 @@
-import Ember from 'ember';
+import Controller from '@ember/controller';
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   names: ['Stefan', 'Miguel', 'Tomster', 'Pluto'],
   countries: [
     { name: 'United States'           },
@@ -9,6 +9,6 @@ export default Ember.Controller.extend({
     { name: 'Russia'                  },
     { name: 'Latvia', disabled: true  },
     { name: 'Brazil'                  },
-    { name: 'United Kingdom'          },
+    { name: 'United Kingdom'          }
   ]
 });

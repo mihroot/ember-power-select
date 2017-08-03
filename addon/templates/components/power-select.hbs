@@ -1,5 +1,7 @@
 {{#basic-dropdown
   horizontalPosition=(readonly horizontalPosition)
+  calculatePosition=calculatePosition
+  destination=(readonly destination)
   initiallyOpened=(readonly initiallyOpened)
   matchTriggerWidth=(readonly matchTriggerWidth)
   onClose=(action "onClose")
@@ -11,15 +13,18 @@
   as |dropdown|}}
 
   {{#dropdown.trigger
+    tagName=(readonly _triggerTagName)
     ariaDescribedBy=(readonly ariaDescribedBy)
     ariaInvalid=(readonly ariaInvalid)
     ariaLabel=(readonly ariaLabel)
     ariaLabelledBy=(readonly ariaLabelledBy)
     ariaRequired=(readonly required)
     class=(readonly concatenatedTriggerClasses)
-    onKeydown=(action "onTriggerKeydown")
+    id=(readonly triggerId)
+    eventType="mousedown"
+    onKeyDown=(action "onTriggerKeydown")
     onFocus=(action "onTriggerFocus")
-    onBlur=(action "deactivate")
+    onBlur=(action "onTriggerBlur")
     tabindex=(readonly tabindex)}}
     {{#component triggerComponent
       allowClear=(readonly allowClear)
@@ -27,10 +32,10 @@
       extra=(readonly extra)
       listboxId=(readonly optionsId)
       onFocus=(action "onFocus")
-      activate=(action "activate")
-      onBlur=(action "deactivate")
+      onBlur=(action "onBlur")
       onInput=(action "onInput")
       placeholder=(readonly placeholder)
+      placeholderComponent=(readonly placeholderComponent)
       onKeydown=(action "onKeydown")
       searchEnabled=(readonly searchEnabled)
       searchField=(readonly searchField)
@@ -39,12 +44,9 @@
       as |opt term|}}
       {{yield opt term}}
     {{/component}}
-
   {{/dropdown.trigger}}
 
-  {{#dropdown.content
-    class=(readonly concatenatedDropdownClasses)
-    to=(readonly destination)}}
+  {{#dropdown.content _contentTagName=_contentTagName class=(readonly concatenatedDropdownClasses)}}
     {{component beforeOptionsComponent
       extra=(readonly extra)
       listboxId=(readonly optionsId)
@@ -52,7 +54,7 @@
       onKeydown=(action "onKeydown")
       searchEnabled=(readonly searchEnabled)
       onFocus=(action "onFocus")
-      onBlur=(action "deactivate")
+      onBlur=(action "onBlur")
       searchPlaceholder=(readonly searchPlaceholder)
       select=(readonly publicAPI)}}
     {{#if mustShowSearchMessage}}
@@ -73,11 +75,13 @@
     {{else}}
       {{#component optionsComponent
         class="ember-power-select-options"
+        extra=(readonly extra)
         groupIndex=""
         loadingMessage=(readonly loadingMessage)
         id=(readonly optionsId)
         options=(readonly publicAPI.results)
         optionsComponent=(readonly optionsComponent)
+        groupComponent=(readonly groupComponent)
         select=(readonly publicAPI)
         as |option term|}}
         {{yield option term}}

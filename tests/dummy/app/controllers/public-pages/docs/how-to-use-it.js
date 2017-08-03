@@ -1,4 +1,4 @@
-import Ember from 'ember';
+import Controller from '@ember/controller';
 
 const countries = [
   { name: 'United States',  flagUrl: '/flags/us.svg' },
@@ -7,12 +7,12 @@ const countries = [
   { name: 'Russia',         flagUrl: '/flags/ru.svg' },
   { name: 'Latvia',         flagUrl: '/flags/lv.svg' },
   { name: 'Brazil',         flagUrl: '/flags/br.svg' },
-  { name: 'United Kingdom', flagUrl: '/flags/gb.svg' },
+  { name: 'United Kingdom', flagUrl: '/flags/gb.svg' }
 ];
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   names: ['Stefan', 'Miguel', 'Tomster', 'Pluto'],
-  countries: countries,
+  countries,
   destination: countries[2],
 
   // Actions

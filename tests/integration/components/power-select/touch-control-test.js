@@ -1,15 +1,14 @@
-// import Ember from 'ember';
-import {moduleForComponent, test} from 'ember-qunit';
+import { moduleForComponent, test } from 'ember-qunit';
 import hbs from 'htmlbars-inline-precompile';
-import {touchTrigger, nativeTouch} from '../../../helpers/ember-power-select';
-
-import {numbers} from '../constants';
+import { touchTrigger } from '../../../helpers/ember-power-select';
+import { numbers } from '../constants';
+import { find, findAll, tap } from 'ember-native-dom-helpers';
 
 moduleForComponent('ember-power-select', 'Integration | Component | Ember Power Select (Touch control)', {
   integration: true
 });
 
-test('Touch on trigger should open the dropdown', function (assert) {
+test('Touch on trigger should open the dropdown', function(assert) {
   assert.expect(1);
 
   this.numbers = numbers;
@@ -20,10 +19,10 @@ test('Touch on trigger should open the dropdown', function (assert) {
   `);
 
   touchTrigger();
-  assert.equal($('.ember-power-select-options').length, 1, 'The dropdown is shown');
+  assert.ok(find('.ember-power-select-options'), 'The dropdown is shown');
 });
 
-test('Touch on option should select it', function (assert) {
+test('Touch on option should select it', function(assert) {
   assert.expect(1);
 
   this.numbers = numbers;
@@ -35,12 +34,12 @@ test('Touch on option should select it', function (assert) {
 
   touchTrigger();
 
-  nativeTouch('.ember-power-select-option:eq(3)');
+  tap(findAll('.ember-power-select-option')[3]);
 
-  assert.equal($('.ember-power-select-selected-item').text().trim(), 'four');
+  assert.equal(find('.ember-power-select-selected-item').textContent.trim(), 'four');
 });
 
-test('Touch on custom option should select it', function (assert) {
+test('Touch on custom option should select it', function(assert) {
   assert.expect(1);
 
   this.numbers = numbers;
@@ -51,8 +50,23 @@ test('Touch on custom option should select it', function (assert) {
   `);
 
   touchTrigger();
+  tap(findAll('.super-fancy')[3]);
 
-  nativeTouch('.super-fancy:eq(3)');
+  assert.equal(find('.ember-power-select-selected-item').textContent.trim(), 'four');
+});
 
-  assert.equal($('.ember-power-select-selected-item').text().trim(), 'four');
+test('Touch on clear button should deselect it', function(assert) {
+  assert.expect(1);
+
+  this.numbers = numbers;
+  this.foo = 'one';
+  this.render(hbs`
+    {{#power-select options=numbers selected=foo allowClear=true onchange=(action (mut foo)) as |option|}}
+      {{option}}
+    {{/power-select}}
+  `);
+
+  tap('.ember-power-select-clear-btn');
+
+  assert.notOk(find('.ember-power-select-selected-item'), '');
 });
